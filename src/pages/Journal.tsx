@@ -96,7 +96,7 @@ export function Journal() {
   const hasFilters = Boolean(q) || mood !== ALL_MOODS || tag !== ALL_TAGS;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 pb-24 sm:pb-8">
       <div className="flex items-end justify-between gap-4 mb-6">
         <div>
           <p className="text-sm text-muted-foreground">
