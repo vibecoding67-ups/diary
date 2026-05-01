@@ -77,6 +77,9 @@ export function CalendarPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 pb-24 sm:pb-8">
+      <div className="flex items-end justify-between gap-4 mb-6">
+        <div>
+          <p className="text-sm text-muted-foreground">A year in pages</p>
           <h1 className="font-serif text-3xl sm:text-4xl mt-1">{year}</h1>
         </div>
         <div className="flex items-center gap-1">
