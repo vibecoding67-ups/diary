@@ -1,28 +1,42 @@
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  PageBreak,
+  TableOfContents,
+  StyleLevel,
+  PageNumber,
+  NumberFormat,
+  Footer,
+  Header,
+  Tab,
+  TabStopType,
+  TabStopLeader,
+  SectionType,
+  convertInchesToTwip,
+  BorderStyle,
+  UnderlineType,
+  LineRuleType,
+  LevelFormat,
+} from "docx";
 import { format, parseISO } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import type { Entry } from "./api";
 import { getMood } from "./moods";
 
-/**
- * "simple"  → format biasa, minimalis, tanpa halaman judul terpisah
- * "formal"  → format laporan resmi: halaman judul, daftar isi dengan titik-titik & nomor halaman
- */
 export type ExportFormat = "simple" | "formal";
 
 export interface ExportOptions {
-  /** Tag yang ingin diekspor. Kosong = semua entry. */
   tags: string[];
-  /** Judul dokumen */
   title: string;
-  /** Urutkan ascending (lama ke baru) atau descending */
   order: "asc" | "desc";
-  /** Sertakan daftar isi */
   includeToc: boolean;
-  /** Format dokumen */
   format: ExportFormat;
 }
 
-/** Format tanggal ke bahasa Indonesia */
 function formatDateId(dateStr: string): string {
   try {
     return format(parseISO(dateStr), "EEEE, d MMMM yyyy", { locale: idLocale });
@@ -31,7 +45,6 @@ function formatDateId(dateStr: string): string {
   }
 }
 
-/** Format tanggal pendek */
 function formatDateShort(dateStr: string): string {
   try {
     return format(parseISO(dateStr), "d MMMM yyyy", { locale: idLocale });
@@ -40,31 +53,6 @@ function formatDateShort(dateStr: string): string {
   }
 }
 
-/** Escape karakter HTML */
-function esc(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** Konversi newline ke paragraf HTML */
-function contentToHtml(content: string, fontFamily: string, fontSize: string): string {
-  if (!content.trim()) return `<p style="margin:0 0 10pt 0;">&nbsp;</p>`;
-  return content
-    .split(/\n\n+/)
-    .map((para) => {
-      const lines = para
-        .split(/\n/)
-        .map((l) => esc(l))
-        .join("<br/>");
-      return `<p style="margin:0 0 10pt 0; line-height:1.8; font-family:${fontFamily}; font-size:${fontSize}; text-align:justify;">${lines}</p>`;
-    })
-    .join("");
-}
-
-/** Filter entries berdasarkan tag yang dipilih. Kosong = semua. */
 export function filterEntriesByTags(entries: Entry[], tags: string[]): Entry[] {
   if (tags.length === 0) return entries;
   return entries.filter((e) => tags.some((t) => e.tags.includes(t)));
@@ -73,272 +61,605 @@ export function filterEntriesByTags(entries: Entry[], tags: string[]): Entry[] {
 // ─────────────────────────────────────────────────────────────────────────────
 // FORMAT BIASA (Simple)
 // ─────────────────────────────────────────────────────────────────────────────
-function generateSimpleHtml(sorted: Entry[], options: ExportOptions): string {
-  const docTitle = esc(options.title || "Jurnal Harian");
+function buildSimpleDoc(sorted: Entry[], options: ExportOptions): Document {
+  const title = options.title || "Jurnal Harian";
   const exportDate = format(new Date(), "d MMMM yyyy", { locale: idLocale });
   const tagLabel =
-    options.tags.length > 0
-      ? options.tags.map(esc).join(", ")
-      : "Semua entri";
+    options.tags.length > 0 ? options.tags.join(", ") : "Semua entri";
 
-  // Daftar isi sederhana (tanpa titik-titik)
-  let tocHtml = "";
-  if (options.includeToc && sorted.length > 0) {
-    const rows = sorted
-      .map((e, i) => `
-        <tr>
-          <td style="padding:3pt 8pt 3pt 0; width:24pt; color:#888; font-size:9pt;">${i + 1}.</td>
-          <td style="padding:3pt 0; font-size:10pt; font-family:'Calibri','Arial',sans-serif;">${esc(e.title)}</td>
-          <td style="padding:3pt 0 3pt 8pt; text-align:right; color:#888; font-size:9pt; white-space:nowrap; font-family:'Calibri','Arial',sans-serif;">${formatDateShort(e.entryDate)}</td>
-        </tr>`)
-      .join("");
+  const children: Paragraph[] = [];
 
-    tocHtml = `
-      <div style="page-break-after:always;">
-        <h2 style="font-family:'Georgia',serif; font-size:15pt; margin:0 0 14pt 0; color:#333; border-bottom:1px solid #ddd; padding-bottom:6pt;">
-          Daftar Isi
-        </h2>
-        <table style="width:100%; border-collapse:collapse;">
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+  // ── Header dokumen (bukan halaman judul terpisah) ──
+  children.push(
+    new Paragraph({
+      text: title,
+      heading: HeadingLevel.TITLE,
+      alignment: AlignmentType.LEFT,
+      spacing: { after: 120 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: tagLabel, color: "888888", size: 20 }),
+        new TextRun({ text: "   ·   ", color: "CCCCCC", size: 20 }),
+        new TextRun({ text: `${sorted.length} entri`, color: "888888", size: 20 }),
+        new TextRun({ text: "   ·   ", color: "CCCCCC", size: 20 }),
+        new TextRun({ text: exportDate, color: "888888", size: 20 }),
+      ],
+      spacing: { after: 400 },
+    })
+  );
+
+  // ── Daftar Isi ──
+  if (options.includeToc) {
+    children.push(
+      new TableOfContents("Daftar Isi", {
+        hyperlink: true,
+        headingStyleRange: "1-2",
+        stylesWithLevels: [
+          new StyleLevel("Heading1", 1),
+          new StyleLevel("Heading2", 2),
+        ],
+      }),
+      new Paragraph({ children: [new PageBreak()] })
+    );
   }
 
-  const entriesHtml = sorted
-    .map((entry, idx) => {
-      const moodObj = getMood(entry.mood);
-      const metaItems: string[] = [];
-      if (moodObj) metaItems.push(`Mood: ${esc(moodObj.label)}`);
-      if (entry.tags.length > 0) metaItems.push(`Tag: ${entry.tags.map(esc).join(", ")}`);
+  // ── Entri ──
+  sorted.forEach((entry, idx) => {
+    const moodObj = getMood(entry.mood);
+    const isLast = idx === sorted.length - 1;
 
-      const isLast = idx === sorted.length - 1;
-      return `
-        <div style="${!isLast ? "page-break-after:always;" : ""} padding-bottom:20pt;">
-          <p style="font-size:9pt; color:#999; margin:0 0 3pt 0; font-family:'Calibri','Arial',sans-serif; text-transform:uppercase; letter-spacing:0.8px;">
-            ${esc(formatDateId(entry.entryDate))}
-          </p>
-          <h2 style="font-family:'Georgia',serif; font-size:17pt; margin:0 0 6pt 0; color:#1a1a1a; font-weight:normal;">
-            ${esc(entry.title)}
-          </h2>
-          ${metaItems.length > 0 ? `<p style="font-size:9pt; color:#888; margin:0 0 12pt 0; font-family:'Calibri','Arial',sans-serif;">${metaItems.join("&nbsp;&nbsp;·&nbsp;&nbsp;")}</p>` : ""}
-          <div>${contentToHtml(entry.content, "'Georgia',serif", "11pt")}</div>
-        </div>`;
-    })
-    .join("\n");
+    // Tanggal
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: formatDateId(entry.entryDate).toUpperCase(),
+            color: "999999",
+            size: 18,
+            font: "Calibri",
+          }),
+        ],
+        spacing: { before: 0, after: 80 },
+      })
+    );
 
-  return buildDocument({
-    docTitle,
-    bodyContent: `
-      <!-- Header ringkas -->
-      <div style="margin-bottom:24pt; border-bottom:2px solid #222; padding-bottom:10pt;">
-        <h1 style="font-family:'Georgia',serif; font-size:22pt; font-weight:normal; margin:0 0 4pt 0; color:#1a1a1a;">${docTitle}</h1>
-        <p style="font-size:9pt; color:#888; margin:0; font-family:'Calibri','Arial',sans-serif;">
-          ${tagLabel} &nbsp;·&nbsp; ${sorted.length} entri &nbsp;·&nbsp; ${esc(exportDate)}
-        </p>
-      </div>
-      ${tocHtml}
-      ${entriesHtml}`,
-    margin: "2.5cm",
+    // Judul entri (Heading 1 agar masuk TOC)
+    children.push(
+      new Paragraph({
+        text: entry.title,
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 0, after: 120 },
+      })
+    );
+
+    // Meta (mood + tag)
+    const metaParts: string[] = [];
+    if (moodObj) metaParts.push(`Mood: ${moodObj.label}`);
+    if (entry.tags.length > 0) metaParts.push(`Tag: ${entry.tags.join(", ")}`);
+    if (metaParts.length > 0) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: metaParts.join("   |   "),
+              color: "888888",
+              size: 18,
+              italics: true,
+              font: "Calibri",
+            }),
+          ],
+          spacing: { after: 200 },
+        })
+      );
+    }
+
+    // Konten
+    const paragraphs = entry.content.split(/\n\n+/).filter(Boolean);
+    if (paragraphs.length === 0) {
+      children.push(new Paragraph({ text: "", spacing: { after: 160 } }));
+    } else {
+      paragraphs.forEach((para) => {
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: para.replace(/\n/g, " "),
+                size: 22,
+                font: "Georgia",
+              }),
+            ],
+            spacing: { after: 160, line: 360, lineRule: LineRuleType.AUTO },
+          })
+        );
+      });
+    }
+
+    // Page break antar entri
+    if (!isLast) {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
+  });
+
+  return new Document({
+    title,
+    styles: {
+      default: {
+        document: {
+          run: { font: "Calibri", size: 22 },
+        },
+      },
+      paragraphStyles: [
+        {
+          id: "Title",
+          name: "Title",
+          basedOn: "Normal",
+          run: {
+            font: "Georgia",
+            size: 52,
+            bold: false,
+            color: "1A1A1A",
+          },
+          paragraph: { spacing: { after: 200 } },
+        },
+        {
+          id: "Heading1",
+          name: "Heading 1",
+          basedOn: "Normal",
+          next: "Normal",
+          run: {
+            font: "Georgia",
+            size: 36,
+            bold: false,
+            color: "1A1A1A",
+          },
+          paragraph: { spacing: { before: 0, after: 120 } },
+        },
+        {
+          id: "Heading2",
+          name: "Heading 2",
+          basedOn: "Normal",
+          next: "Normal",
+          run: {
+            font: "Georgia",
+            size: 28,
+            bold: false,
+            color: "333333",
+          },
+          paragraph: { spacing: { before: 0, after: 80 } },
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: convertInchesToTwip(1),
+              right: convertInchesToTwip(1),
+              bottom: convertInchesToTwip(1),
+              left: convertInchesToTwip(1),
+            },
+          },
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    children: [PageNumber.CURRENT],
+                    size: 18,
+                    color: "888888",
+                    font: "Calibri",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children,
+      },
+    ],
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORMAT FORMAL (Laporan)
+// FORMAT FORMAL (Laporan — mirip gambar referensi)
 // ─────────────────────────────────────────────────────────────────────────────
-function generateFormalHtml(sorted: Entry[], options: ExportOptions): string {
-  const docTitle = esc(options.title || "Jurnal Harian");
+function buildFormalDoc(sorted: Entry[], options: ExportOptions): Document {
+  const title = options.title || "Jurnal Harian";
   const exportDate = format(new Date(), "d MMMM yyyy", { locale: idLocale });
   const tagLabel =
-    options.tags.length > 0
-      ? options.tags.map(esc).join(", ")
-      : "Semua Entri";
+    options.tags.length > 0 ? options.tags.join(", ") : "Semua Entri";
 
   // ── Halaman Judul ──────────────────────────────────────────────────────────
-  const coverPage = `
-    <div style="page-break-after:always; text-align:center; padding-top:100pt;">
-      <p style="font-size:12pt; font-family:'Times New Roman',serif; margin:0 0 40pt 0; letter-spacing:2px; text-transform:uppercase;">
-        ─────────────────────────
-      </p>
-      <h1 style="font-family:'Times New Roman',serif; font-size:24pt; font-weight:bold; color:#000; margin:0 0 12pt 0; text-transform:uppercase; letter-spacing:1px;">
-        ${docTitle}
-      </h1>
-      <p style="font-size:12pt; font-family:'Times New Roman',serif; margin:0 0 40pt 0; letter-spacing:2px;">
-        ─────────────────────────
-      </p>
-      <p style="font-size:11pt; font-family:'Times New Roman',serif; margin:0 0 6pt 0; color:#333;">
-        ${esc(tagLabel)}
-      </p>
-      <p style="font-size:11pt; font-family:'Times New Roman',serif; margin:0 0 6pt 0; color:#333;">
-        ${sorted.length} Entri
-      </p>
-      <p style="font-size:11pt; font-family:'Times New Roman',serif; margin:0; color:#333;">
-        ${esc(exportDate)}
-      </p>
-    </div>`;
+  const coverChildren: Paragraph[] = [
+    // Spasi atas
+    ...Array(8).fill(null).map(() => new Paragraph({ text: "" })),
 
-  // ── Daftar Isi Formal (titik-titik + nomor halaman simulasi) ───────────────
-  let tocPage = "";
-  if (options.includeToc && sorted.length > 0) {
-    // Simulasi nomor halaman: cover=i, toc=ii, entri mulai dari 1
-    const rows = sorted
-      .map((e, i) => {
-        const pageNum = i + 1;
-        const title = esc(e.title);
-        const dateStr = esc(formatDateShort(e.entryDate));
-        // Titik-titik menggunakan leader dots via CSS
-        return `
-          <tr>
-            <td style="padding:4pt 0; font-family:'Times New Roman',serif; font-size:11pt; width:100%;">
-              <table style="width:100%; border-collapse:collapse;">
-                <tr>
-                  <td style="font-family:'Times New Roman',serif; font-size:11pt; white-space:nowrap; padding-right:4pt;">
-                    ${title}
-                  </td>
-                  <td style="font-family:'Times New Roman',serif; font-size:11pt; color:#555; font-size:10pt; white-space:nowrap; padding-right:4pt; width:1%;">
-                    (${dateStr})
-                  </td>
-                  <td style="font-family:'Times New Roman',serif; font-size:11pt; width:99%;
-                    background-image: radial-gradient(circle, #555 1px, transparent 1px);
-                    background-size: 6px 100%;
-                    background-repeat: repeat-x;
-                    background-position: 0 bottom;">
-                    &nbsp;
-                  </td>
-                  <td style="font-family:'Times New Roman',serif; font-size:11pt; text-align:right; white-space:nowrap; padding-left:4pt;">
-                    ${pageNum}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`;
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: "─────────────────────────",
+          size: 24,
+          font: "Times New Roman",
+          color: "555555",
+        }),
+      ],
+      spacing: { after: 400 },
+    }),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: title.toUpperCase(),
+          bold: true,
+          size: 48,
+          font: "Times New Roman",
+          color: "000000",
+        }),
+      ],
+      spacing: { after: 400 },
+    }),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: "─────────────────────────",
+          size: 24,
+          font: "Times New Roman",
+          color: "555555",
+        }),
+      ],
+      spacing: { after: 600 },
+    }),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: tagLabel,
+          size: 24,
+          font: "Times New Roman",
+          color: "333333",
+        }),
+      ],
+      spacing: { after: 160 },
+    }),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `${sorted.length} Entri`,
+          size: 24,
+          font: "Times New Roman",
+          color: "333333",
+        }),
+      ],
+      spacing: { after: 160 },
+    }),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: exportDate,
+          size: 24,
+          font: "Times New Roman",
+          color: "333333",
+        }),
+      ],
+      spacing: { after: 0 },
+    }),
+  ];
+
+  // ── Daftar Isi (TOC field Word native) ────────────────────────────────────
+  const tocChildren: Paragraph[] = [];
+  if (options.includeToc) {
+    tocChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: "DAFTAR ISI",
+            bold: true,
+            size: 28,
+            font: "Times New Roman",
+            color: "000000",
+          }),
+        ],
+        spacing: { before: 0, after: 480 },
+      }),
+      // TOC field — Word akan auto-generate dengan titik-titik dan nomor halaman
+      new TableOfContents("", {
+        hyperlink: true,
+        headingStyleRange: "1-2",
+        stylesWithLevels: [
+          new StyleLevel("Heading1", 1),
+          new StyleLevel("Heading2", 2),
+        ],
       })
-      .join("");
-
-    tocPage = `
-      <div style="page-break-after:always;">
-        <h2 style="font-family:'Times New Roman',serif; font-size:14pt; font-weight:bold; text-align:center; margin:0 0 20pt 0; text-transform:uppercase; letter-spacing:1px;">
-          DAFTAR ISI
-        </h2>
-        <table style="width:100%; border-collapse:collapse;">
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+    );
   }
 
-  // ── Konten Entri Formal ────────────────────────────────────────────────────
-  const entriesHtml = sorted
-    .map((entry, idx) => {
-      const moodObj = getMood(entry.mood);
-      const metaItems: string[] = [];
-      if (moodObj) metaItems.push(`Mood: ${esc(moodObj.label)}`);
-      if (entry.tags.length > 0) metaItems.push(`Tag: ${entry.tags.map(esc).join(", ")}`);
+  // ── Konten Entri ──────────────────────────────────────────────────────────
+  const entryChildren: Paragraph[] = [];
 
-      const isLast = idx === sorted.length - 1;
-      return `
-        <div style="${!isLast ? "page-break-after:always;" : ""} padding-bottom:20pt;">
-          <!-- Nomor entri & tanggal -->
-          <p style="font-size:10pt; font-family:'Times New Roman',serif; color:#555; margin:0 0 2pt 0; text-align:center;">
-            Entri ${idx + 1}
-          </p>
-          <h2 style="font-family:'Times New Roman',serif; font-size:14pt; font-weight:bold; margin:0 0 4pt 0; color:#000; text-align:center; text-transform:uppercase; letter-spacing:0.5px;">
-            ${esc(entry.title)}
-          </h2>
-          <p style="font-size:10pt; font-family:'Times New Roman',serif; color:#555; margin:0 0 16pt 0; text-align:center;">
-            ${esc(formatDateId(entry.entryDate))}
-          </p>
-          <div style="border-top:1px solid #999; margin-bottom:14pt;"></div>
-          ${metaItems.length > 0 ? `
-          <p style="font-size:10pt; color:#555; margin:0 0 14pt 0; font-family:'Times New Roman',serif; font-style:italic;">
-            ${metaItems.join("&nbsp;&nbsp;|&nbsp;&nbsp;")}
-          </p>` : ""}
-          <div>${contentToHtml(entry.content, "'Times New Roman',serif", "12pt")}</div>
-        </div>`;
-    })
-    .join("\n");
+  sorted.forEach((entry, idx) => {
+    const moodObj = getMood(entry.mood);
+    const isLast = idx === sorted.length - 1;
 
-  return buildDocument({
-    docTitle,
-    bodyContent: `${coverPage}${tocPage}${entriesHtml}`,
-    margin: "3cm 3cm 3cm 4cm", // margin laporan: kiri lebih lebar
-    extraStyle: `
-      body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 2; }
-    `,
+    // Nomor entri
+    entryChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: `Entri ${idx + 1}`,
+            size: 20,
+            font: "Times New Roman",
+            color: "666666",
+          }),
+        ],
+        spacing: { before: 0, after: 80 },
+      })
+    );
+
+    // Judul entri (Heading 1 → masuk TOC)
+    entryChildren.push(
+      new Paragraph({
+        text: entry.title.toUpperCase(),
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 80 },
+      })
+    );
+
+    // Tanggal
+    entryChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: formatDateId(entry.entryDate),
+            size: 20,
+            font: "Times New Roman",
+            color: "555555",
+          }),
+        ],
+        spacing: { after: 320 },
+      })
+    );
+
+    // Garis pemisah (simulasi dengan border bawah)
+    entryChildren.push(
+      new Paragraph({
+        text: "",
+        border: {
+          bottom: {
+            color: "999999",
+            space: 1,
+            style: BorderStyle.SINGLE,
+            size: 6,
+          },
+        },
+        spacing: { after: 280 },
+      })
+    );
+
+    // Meta
+    const metaParts: string[] = [];
+    if (moodObj) metaParts.push(`Mood: ${moodObj.label}`);
+    if (entry.tags.length > 0) metaParts.push(`Tag: ${entry.tags.join(", ")}`);
+    if (metaParts.length > 0) {
+      entryChildren.push(
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          children: [
+            new TextRun({
+              text: metaParts.join("   |   "),
+              size: 20,
+              font: "Times New Roman",
+              italics: true,
+              color: "666666",
+            }),
+          ],
+          spacing: { after: 280 },
+        })
+      );
+    }
+
+    // Konten
+    const paragraphs = entry.content.split(/\n\n+/).filter(Boolean);
+    if (paragraphs.length === 0) {
+      entryChildren.push(new Paragraph({ text: "", spacing: { after: 240 } }));
+    } else {
+      paragraphs.forEach((para) => {
+        entryChildren.push(
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            children: [
+              new TextRun({
+                text: para.replace(/\n/g, " "),
+                size: 24,
+                font: "Times New Roman",
+              }),
+            ],
+            spacing: {
+              after: 240,
+              line: 480, // spasi 2x (240 twips per line = single, 480 = double)
+              lineRule: LineRuleType.AUTO,
+            },
+            indent: { firstLine: convertInchesToTwip(0.5) },
+          })
+        );
+      });
+    }
+
+    if (!isLast) {
+      entryChildren.push(new Paragraph({ children: [new PageBreak()] }));
+    }
   });
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Builder HTML dokumen
-// ─────────────────────────────────────────────────────────────────────────────
-function buildDocument({
-  docTitle,
-  bodyContent,
-  margin,
-  extraStyle = "",
-}: {
-  docTitle: string;
-  bodyContent: string;
-  margin: string;
-  extraStyle?: string;
-}): string {
-  return `
-<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="ProgId" content="Word.Document"/>
-  <meta name="Generator" content="Microsoft Word 15"/>
-  <meta name="Originator" content="Microsoft Word 15"/>
-  <!--[if gte mso 9]>
-  <xml>
-    <w:WordDocument>
-      <w:View>Print</w:View>
-      <w:Zoom>100</w:Zoom>
-      <w:DoNotOptimizeForBrowser/>
-    </w:WordDocument>
-  </xml>
-  <![endif]-->
-  <style>
-    @page { size: A4; margin: ${margin}; }
-    body { color: #111; line-height: 1.6; }
-    h1, h2, h3 { page-break-after: avoid; }
-    p { margin: 0 0 8pt 0; }
-    table { border-collapse: collapse; }
-    ${extraStyle}
-  </style>
-  <title>${docTitle}</title>
-</head>
-<body>
-  ${bodyContent}
-</body>
-</html>`.trim();
+  // ── Styles formal ─────────────────────────────────────────────────────────
+  const formalStyles = {
+    default: {
+      document: {
+        run: { font: "Times New Roman", size: 24 },
+      },
+    },
+    paragraphStyles: [
+      {
+        id: "Heading1",
+        name: "Heading 1",
+        basedOn: "Normal",
+        next: "Normal",
+        run: {
+          font: "Times New Roman",
+          size: 28,
+          bold: true,
+          color: "000000",
+        },
+        paragraph: {
+          spacing: { before: 0, after: 80 },
+          alignment: AlignmentType.CENTER,
+        },
+      },
+      {
+        id: "Heading2",
+        name: "Heading 2",
+        basedOn: "Normal",
+        next: "Normal",
+        run: {
+          font: "Times New Roman",
+          size: 24,
+          bold: true,
+          color: "000000",
+        },
+        paragraph: {
+          spacing: { before: 0, after: 80 },
+        },
+      },
+      {
+        id: "TOC1",
+        name: "TOC 1",
+        basedOn: "Normal",
+        run: { font: "Times New Roman", size: 24 },
+        paragraph: { spacing: { after: 120 } },
+      },
+      {
+        id: "TOC2",
+        name: "TOC 2",
+        basedOn: "Normal",
+        run: { font: "Times New Roman", size: 22 },
+        paragraph: {
+          spacing: { after: 80 },
+          indent: { left: convertInchesToTwip(0.3) },
+        },
+      },
+    ],
+  };
+
+  // Margin laporan: kiri 4cm, lainnya 3cm
+  const pageMargin = {
+    top: convertInchesToTwip(1.18),    // ~3cm
+    right: convertInchesToTwip(1.18),  // ~3cm
+    bottom: convertInchesToTwip(1.18), // ~3cm
+    left: convertInchesToTwip(1.57),   // ~4cm
+  };
+
+  const footerParagraph = new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [
+      new TextRun({
+        children: [PageNumber.CURRENT],
+        size: 20,
+        font: "Times New Roman",
+      }),
+    ],
+  });
+
+  return new Document({
+    title,
+    styles: formalStyles as any,
+    sections: [
+      // Section 1: Halaman Judul (tanpa nomor halaman)
+      {
+        properties: {
+          type: SectionType.NEXT_PAGE,
+          page: {
+            margin: pageMargin,
+            pageNumbers: { start: 1, formatType: NumberFormat.LOWER_ROMAN },
+          },
+        },
+        footers: { default: new Footer({ children: [new Paragraph({ text: "" })] }) },
+        children: coverChildren,
+      },
+      // Section 2: Daftar Isi (nomor romawi)
+      ...(options.includeToc
+        ? [
+            {
+              properties: {
+                type: SectionType.NEXT_PAGE,
+                page: {
+                  margin: pageMargin,
+                  pageNumbers: {
+                    start: 2,
+                    formatType: NumberFormat.LOWER_ROMAN,
+                  },
+                },
+              },
+              footers: {
+                default: new Footer({ children: [footerParagraph] }),
+              },
+              children: tocChildren,
+            },
+          ]
+        : []),
+      // Section 3: Konten (nomor arab mulai dari 1)
+      {
+        properties: {
+          type: SectionType.NEXT_PAGE,
+          page: {
+            margin: pageMargin,
+            pageNumbers: { start: 1, formatType: NumberFormat.DECIMAL },
+          },
+        },
+        footers: {
+          default: new Footer({ children: [footerParagraph] }),
+        },
+        children: entryChildren,
+      },
+    ],
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Generate HTML Word document sesuai format yang dipilih */
-export function generateWordHtml(entries: Entry[], options: ExportOptions): string {
+export async function downloadAsWord(
+  entries: Entry[],
+  options: ExportOptions
+): Promise<void> {
   const filtered = filterEntriesByTags(entries, options.tags);
   const sorted = [...filtered].sort((a, b) => {
     const cmp = a.entryDate.localeCompare(b.entryDate);
     return options.order === "asc" ? cmp : -cmp;
   });
 
-  if (options.format === "formal") {
-    return generateFormalHtml(sorted, options);
-  }
-  return generateSimpleHtml(sorted, options);
-}
+  const doc =
+    options.format === "formal"
+      ? buildFormalDoc(sorted, options)
+      : buildSimpleDoc(sorted, options);
 
-/** Trigger download file .doc ke browser */
-export function downloadAsWord(entries: Entry[], options: ExportOptions): void {
-  const html = generateWordHtml(entries, options);
-  const blob = new Blob(["\ufeff", html], {
-    type: "application/msword;charset=utf-8",
-  });
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const safeTitle = (options.title || "jurnal")
@@ -346,7 +667,7 @@ export function downloadAsWord(entries: Entry[], options: ExportOptions): void {
     .replace(/[^a-z0-9]+/gi, "-")
     .replace(/^-+|-+$/g, "");
   a.href = url;
-  a.download = `${safeTitle}.doc`;
+  a.download = `${safeTitle}.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

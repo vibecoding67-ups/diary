@@ -93,8 +93,7 @@ export function ExportDialog({
     setExporting(true);
     setDone(false);
     try {
-      await new Promise((r) => setTimeout(r, 100));
-      downloadAsWord(allEntries, {
+      await downloadAsWord(allEntries, {
         tags: selectedTags,
         title: docTitle.trim() || "Jurnal Harian",
         order,
@@ -263,7 +262,7 @@ export function ExportDialog({
             ) : done ? (
               <><Check className="h-4 w-4 mr-2" />Berhasil!</>
             ) : (
-              <><FileDown className="h-4 w-4 mr-2" />Unduh .doc</>
+              <><FileDown className="h-4 w-4 mr-2" />Unduh .docx</>
             )}
           </Button>
         </DialogFooter>
