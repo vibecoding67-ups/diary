@@ -7,6 +7,7 @@ import {
   X,
   PenLine,
   ChevronRight,
+  FileDown,
 } from "lucide-react";
 import {
   useListEntries,
@@ -36,6 +37,7 @@ import {
 import { MOODS } from "@/lib/moods";
 import { MoodChip } from "@/components/MoodChip";
 import { EntryEditor, type EntryDraft } from "@/components/EntryEditor";
+import { ExportDialog } from "@/components/ExportDialog";
 
 const ALL_MOODS = "all";
 const ALL_TAGS = "all";
@@ -45,6 +47,7 @@ export function Journal() {
   const [mood, setMood] = useState<string>(ALL_MOODS);
   const [tag, setTag] = useState<string>(ALL_TAGS);
   const [showEditor, setShowEditor] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const params = useMemo(() => {
     const p: { q?: string; mood?: string; tag?: string } = {};
@@ -106,10 +109,21 @@ export function Journal() {
             Your journal
           </h1>
         </div>
-        <Button size="lg" onClick={() => setShowEditor(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New entry
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => setShowExport(true)}
+            disabled={!entries || entries.length === 0}
+          >
+            <FileDown className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Ekspor</span>
+          </Button>
+          <Button size="lg" onClick={() => setShowEditor(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New entry
+          </Button>
+        </div>
       </div>
 
       <div className="paper-card rounded-xl p-4 mb-6 flex flex-col sm:flex-row gap-3">
@@ -260,6 +274,13 @@ export function Journal() {
           />
         </DialogContent>
       </Dialog>
+
+      <ExportDialog
+        open={showExport}
+        onOpenChange={setShowExport}
+        availableTags={allTags}
+        activeTag={tag !== ALL_TAGS ? tag : undefined}
+      />
     </div>
   );
 }
