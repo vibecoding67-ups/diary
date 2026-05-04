@@ -1,10 +1,7 @@
-# Cozy Diary — Versi Supabase + Vercel
-
-Stack: **React + Vite => Vercel** (hosting) + **Supabase** (auth + database). Gak butuh backend server, gak butuh custom domain.
 
 ---
 
-## Langkah Deploy (~30 menit)
+## Langkah Deploy
 
 ### Langkah 1 — Daftar Supabase
 
